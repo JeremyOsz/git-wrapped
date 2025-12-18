@@ -198,25 +198,28 @@ display_full_stats() {
     
     # Get most active day of week
     echo -e "${BOLD}${WHITE}📅 MOST ACTIVE DAY${NC}\n"
-    local most_active_day=$(git log --since="$START_DATE" --until="$END_DATE" --pretty=format:"%a" 2>/dev/null | \
-        sort | uniq -c | sort -rn | head -1 | awk '{print $2}')
-    local day_count=$(git log --since="$START_DATE" --until="$END_DATE" --pretty=format:"%a" 2>/dev/null | \
-        sort | uniq -c | sort -rn | head -1 | awk '{print $1}')
+    local day_data=$(git log --since="$START_DATE" --until="$END_DATE" --pretty=format:"%a" 2>/dev/null | \
+        sort | uniq -c | sort -rn | head -1)
     
-    local day_name=""
-    case $most_active_day in
-        Mon) day_name="Monday" ;;
-        Tue) day_name="Tuesday" ;;
-        Wed) day_name="Wednesday" ;;
-        Thu) day_name="Thursday" ;;
-        Fri) day_name="Friday" ;;
-        Sat) day_name="Saturday" ;;
-        Sun) day_name="Sunday" ;;
-        *) day_name=$most_active_day ;;
-    esac
-    
-    if [ -n "$day_name" ] && [ -n "$day_count" ]; then
-        echo -e "${YELLOW}${day_name}${NC} ${CYAN}was your most productive day with ${BOLD}${day_count}${NC}${CYAN} commits!${NC}\n"
+    if [ -n "$day_data" ]; then
+        local day_count=$(echo "$day_data" | awk '{print $1}')
+        local most_active_day=$(echo "$day_data" | awk '{print $2}')
+        
+        local day_name=""
+        case $most_active_day in
+            Mon) day_name="Monday" ;;
+            Tue) day_name="Tuesday" ;;
+            Wed) day_name="Wednesday" ;;
+            Thu) day_name="Thursday" ;;
+            Fri) day_name="Friday" ;;
+            Sat) day_name="Saturday" ;;
+            Sun) day_name="Sunday" ;;
+            *) day_name="${most_active_day:-Unknown}" ;;
+        esac
+        
+        if [ -n "$day_name" ] && [ "$day_name" != "Unknown" ] && [ -n "$day_count" ]; then
+            echo -e "${YELLOW}${day_name}${NC} ${CYAN}was your most productive day with ${BOLD}${day_count}${NC}${CYAN} commits!${NC}\n"
+        fi
     fi
     
     # Get longest commit streak (consecutive days with commits)
@@ -334,9 +337,53 @@ display_all_repos_summary() {
     cd "$original_dir"
 }
 
+# Function to strip ANSI color codes
+strip_ansi() {
+    sed -E 's/\x1b\[[0-9;]*m//g'
+}
+
+# Function to get repository name
+get_repo_name() {
+    local repo_path="$1"
+    if [ "$repo_path" = "." ]; then
+        local git_root=$(git rev-parse --show-toplevel 2>/dev/null)
+        if [ -n "$git_root" ]; then
+            basename "$git_root"
+        else
+            basename "$(pwd)"
+        fi
+    else
+        basename "$repo_path"
+    fi
+}
+
 # Main execution
+# Create reports directory (relative to script location or current directory)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPORTS_DIR="$SCRIPT_DIR/reports"
+mkdir -p "$REPORTS_DIR"
+
 if [ "$ALL_REPOS" = true ]; then
-    display_all_repos_summary "$SEARCH_DIR"
+    # Generate report filename for all repos mode
+    TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    REPO_BASE=$(basename "$SEARCH_DIR")
+    if [ "$REPO_BASE" = "." ] || [ "$REPO_BASE" = "" ]; then
+        REPO_BASE="all-repos"
+    fi
+    REPORT_FILE="$REPORTS_DIR/git-wrapped-${REPO_BASE}-${YEAR}-${TIMESTAMP}.txt"
+    
+    # Execute, display with colors, and save clean version to file
+    display_all_repos_summary "$SEARCH_DIR" | tee >(strip_ansi > "$REPORT_FILE")
+    echo -e "${GREEN}Report saved to: ${BOLD}${REPORT_FILE}${NC}\n"
+    echo "Report saved to: $REPORT_FILE" >> "$REPORT_FILE"
 else
-    display_full_stats "."
+    # Generate report filename for single repo mode
+    REPO_NAME=$(get_repo_name ".")
+    TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    REPORT_FILE="$REPORTS_DIR/git-wrapped-${REPO_NAME}-${YEAR}-${TIMESTAMP}.txt"
+    
+    # Execute, display with colors, and save clean version to file
+    display_full_stats "." | tee >(strip_ansi > "$REPORT_FILE")
+    echo -e "${GREEN}Report saved to: ${BOLD}${REPORT_FILE}${NC}\n"
+    echo "Report saved to: $REPORT_FILE" >> "$REPORT_FILE"
 fi
